@@ -1,45 +1,83 @@
 use axum::{
+    body::Bytes,
+    extract::State,
+    http::StatusCode,
     response::{Html, IntoResponse},
     routing::get,
     Json, Router,
 };
 use serde_json::json;
-use std::io;
+use std::{net::SocketAddr, sync::Arc};
+use tower_http::{
+    compression::CompressionLayer,
+    trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer},
+};
+use tracing::Level;
+use tracing_subscriber::EnvFilter;
+
+struct AppState {
+    index_html: Bytes,
+}
+
+fn init_logging() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("warn")),
+        )
+        .with_target(false)
+        .compact()
+        .init();
+}
 
 #[tokio::main]
 async fn main() {
-    let app = Router::new()
-        .route("/", get(index))
-        .route("/api", get(hello_world));
+    init_logging();
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
+    // Load HTML once at startup.
+    let html = tokio::fs::read("templates/index.html")
         .await
-        .unwrap();
+        .expect("Failed to load templates/index.html");
 
-    println!("Server started successfully on 0.0.0.0:3000");
-
-    axum::serve(listener, app).await.unwrap();
-}
-
-
-async fn index() -> Html<String> {
-    let html = tokio::fs::read_to_string("templates/index.html")
-        .await
-        .unwrap_or_else(|err| {
-            eprintln!("Failed to read index.html: {err}");
-            "<h1>500 - Internal Server Error</h1>".to_string()
-        });
-
-    Html(html)
-}
-
-
-async fn hello_world() -> impl IntoResponse {
-    let json_response = json!({
-        "status": "ok",
-        "message": "Hello world"
+    let state = Arc::new(AppState {
+        index_html: Bytes::from(html),
     });
 
-    Json(json_response)
+    let app = Router::new()
+        .route("/", get(index))
+        .route("/api", get(hello_world))
+        .with_state(state)
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(Level::DEBUG))
+                .on_request(DefaultOnRequest::new().level(Level::DEBUG))
+                .on_response(DefaultOnResponse::new().level(Level::DEBUG)),
+        )
+        .layer(CompressionLayer::new());
+
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .expect("Failed to bind port 3000");
+
+    tracing::info!("Server listening on http://{addr}");
+
+    axum::serve(listener, app)
+        .await
+        .expect("Server failed");
 }
 
+async fn index(State(state): State<Arc<AppState>>) -> Html<Bytes> {
+    // Bytes clones cheaply without copying the HTML contents.
+    Html(state.index_html.clone())
+}
+
+async fn hello_world() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        Json(json!({
+            "status": "ok",
+            "message": "Hello world"
+        })),
+    )
+}
