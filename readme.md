@@ -5,9 +5,9 @@
 <p>It simulates worst case scenarios.</p>
 <ol>
   <h1>When it comes to performance</h1>
-  <li>1. C++: ~86k Req/S</li>
-  <li>2. Rust: ~67k Req/S</li>
-  <li>3. Go: ~62k Req/s</li>
+  <li>C++: ~86k Req/S</li>
+  <li>Rust: ~67k Req/S</li>
+  <li>Go: ~62k Req/s</li>
 </ol>
 
-<p>Go was the simplest to get up and running, but with GC instead of manual memory management, tends to be slower. Rust and C++ are faster but requires a lot more fine tuning and optimization such as optimizing compile flags.</p>
+<p>Go was the simplest to get up and running, but with GC instead of manual memory management, tends to be slower. Rust and C++ are faster but requires a lot more fine tuning and optimization such as optimizing compile flags. But I don't believe that Go and Rust should have performances this close, will fine tune rust to get better performance out of it as it seems a bit off.</p>
